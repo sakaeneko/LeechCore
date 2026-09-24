@@ -454,11 +454,11 @@ EXPORTED_FUNCTION HANDLE LcCreateEx(_Inout_ PLC_CONFIG pLcCreateConfig, _Out_opt
                 char szLine[128];
                 while(fgets(szLine, sizeof(szLine), fp)) {
                     if(0 == strncmp(szLine, "ip=", 3)) {
-                        sscanf(szLine + 3, "%63s", szIP);
+                        sscanf_s(szLine + 3, "%63s", szIP, (unsigned)sizeof(szIP));
                     } else if(0 == strncmp(szLine, "port=", 5)) {
-                        sscanf(szLine + 5, "%d", &iPort);
+                        sscanf_s(szLine + 5, "%d", &iPort);
                     } else if(0 == strncmp(szLine, "pid=", 4)) {
-                        sscanf(szLine + 4, "%lu", &ulPID);
+                        sscanf_s(szLine + 4, "%lu", &ulPID);
                     }
                 }
                 fclose(fp);
