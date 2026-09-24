@@ -1,0 +1,26 @@
+name: Build LeechCore DLL
+
+on:
+  push:
+  workflow_dispatch:
+
+jobs:
+  build-windows:
+    runs-on: windows-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup MSBuild
+        uses: microsoft/setup-msbuild@v2
+
+      - name: Build leechcore only
+        run: msbuild leechcore\leechcore.vcxproj /p:Configuration=Release /p:Platform=x64
+
+      - name: Upload Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: leechcore-dll
+          path: |
+            **/leechcore.dll
+            **/libleechgrpc.dll
