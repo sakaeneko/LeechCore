@@ -1,4 +1,4 @@
-name: Build LeechCore
+name: Build LeechCore DLL
 
 on:
   push:
@@ -14,14 +14,13 @@ jobs:
       - name: Setup MSBuild
         uses: microsoft/setup-msbuild@v2
 
-      - name: Build Solution
-        run: msbuild LeechCore.sln /p:Configuration=Release /p:Platform=x64
+      - name: Build leechcore only
+        run: msbuild LeechCore.sln /t:leechcore /p:Configuration=Release /p:Platform=x64
 
       - name: Upload Artifact
         uses: actions/upload-artifact@v4
         with:
-          name: leechcore-build
+          name: leechcore-dll
           path: |
             **/leechcore.dll
             **/libleechgrpc.dll
-            **/leechcore_device_*.dll
