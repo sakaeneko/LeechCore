@@ -425,50 +425,43 @@ EXPORTED_FUNCTION HANDLE LcCreateEx(_Inout_ PLC_CONFIG pLcCreateConfig, _Out_opt
     QWORD qwExistingHandle = 0, tmStart = LcCallStart();
     if(ppLcCreateErrorInfo) { *ppLcCreateErrorInfo = NULL; }
     if(!pLcCreateConfig || (pLcCreateConfig->dwVersion != LC_CONFIG_VERSION)) { return NULL; }
-    {
+{
         char szDllPath[MAX_PATH] = { 0 };
         char szCfgPath[MAX_PATH] = { 0 };
+        char szIP[64] = { 0 };
+        char szLine[128];
+        unsigned long ulPID = 0;
         HMODULE hSelf = NULL;
-        
-        // 获取本 DLL 的路径
+        char* pSlash = NULL;
+        FILE* fp = NULL;
+
         GetModuleHandleExA(
             GET_MODULE_HANDLE_EX_FLAG_FROM_ADDRESS | GET_MODULE_HANDLE_EX_FLAG_UNCHANGED_REFCOUNT,
             (LPCSTR)&LcCreateEx,
             &hSelf
         );
         GetModuleFileNameA(hSelf, szDllPath, MAX_PATH);
-        
-        // 截断到目录，拼接配置文件名
-        char* pSlash = strrchr(szDllPath, '\\');
+
+        pSlash = strrchr(szDllPath, '\\');
         if(pSlash) {
             *(pSlash + 1) = '\0';
-            snprintf(szCfgPath, MAX_PATH, "%sleechcore_config.ini", szDllPath);
-            
-            FILE* fp = fopen(szCfgPath, "r");
-            if(fp) {
-                char szIP[64] = { 0 };
-                int  iPort = 28474;
-                unsigned long ulPID = 0;
-                
-                // 读取三行配置：ip=... / port=... / pid=...
-                char szLine[128];
+            _snprintf_s(szCfgPath, MAX_PATH, _TRUNCATE, "%sleechcore_config.txt", szDllPath);
+
+            if(0 == fopen_s(&fp, szCfgPath, "r")) {
                 while(fgets(szLine, sizeof(szLine), fp)) {
                     if(0 == strncmp(szLine, "ip=", 3)) {
                         sscanf_s(szLine + 3, "%63s", szIP, (unsigned)sizeof(szIP));
-                    } else if(0 == strncmp(szLine, "port=", 5)) {
-                        sscanf_s(szLine + 5, "%d", &iPort);
                     } else if(0 == strncmp(szLine, "pid=", 4)) {
                         sscanf_s(szLine + 4, "%lu", &ulPID);
                     }
                 }
                 fclose(fp);
-                
-                // 覆盖 szRemote 和 szDevice
+
                 if(szIP[0] && ulPID) {
-                    snprintf(pLcCreateConfig->szRemote, sizeof(pLcCreateConfig->szRemote),
-                             "grpc://%s:%d", szIP, iPort);
-                    snprintf(pLcCreateConfig->szDevice, sizeof(pLcCreateConfig->szDevice),
-                             "qemu://hugepage-pid=%lu,qmp=/tmp/qmp-win10.sock", ulPID);
+                    _snprintf_s(pLcCreateConfig->szRemote, sizeof(pLcCreateConfig->szRemote), _TRUNCATE,
+                                "rpc://%s:28473", szIP);
+                    _snprintf_s(pLcCreateConfig->szDevice, sizeof(pLcCreateConfig->szDevice), _TRUNCATE,
+                                "qemu://hugepage-pid=%lu", ulPID);
                 }
             }
         }
