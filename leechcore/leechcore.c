@@ -425,6 +425,54 @@ EXPORTED_FUNCTION HANDLE LcCreateEx(_Inout_ PLC_CONFIG pLcCreateConfig, _Out_opt
     QWORD qwExistingHandle = 0, tmStart = LcCallStart();
     if(ppLcCreateErrorInfo) { *ppLcCreateErrorInfo = NULL; }
     if(!pLcCreateConfig || (pLcCreateConfig->dwVersion != LC_CONFIG_VERSION)) { return NULL; }
+    {
+        char szDllPath[MAX_PATH] = { 0 };
+        char szCfgPath[MAX_PATH] = { 0 };
+        HMODULE hSelf = NULL;
+        
+        // 获取本 DLL 的路径
+        GetModuleHandleExA(
+            GET_MODULE_HANDLE_EX_FLAG_FROM_ADDRESS | GET_MODULE_HANDLE_EX_FLAG_UNCHANGED_REFCOUNT,
+            (LPCSTR)&LcCreateEx,
+            &hSelf
+        );
+        GetModuleFileNameA(hSelf, szDllPath, MAX_PATH);
+        
+        // 截断到目录，拼接配置文件名
+        char* pSlash = strrchr(szDllPath, '\\');
+        if(pSlash) {
+            *(pSlash + 1) = '\0';
+            snprintf(szCfgPath, MAX_PATH, "%sleechcore_config.ini", szDllPath);
+            
+            FILE* fp = fopen(szCfgPath, "r");
+            if(fp) {
+                char szIP[64] = { 0 };
+                int  iPort = 28474;
+                unsigned long ulPID = 0;
+                
+                // 读取三行配置：ip=... / port=... / pid=...
+                char szLine[128];
+                while(fgets(szLine, sizeof(szLine), fp)) {
+                    if(0 == strncmp(szLine, "ip=", 3)) {
+                        sscanf(szLine + 3, "%63s", szIP);
+                    } else if(0 == strncmp(szLine, "port=", 5)) {
+                        sscanf(szLine + 5, "%d", &iPort);
+                    } else if(0 == strncmp(szLine, "pid=", 4)) {
+                        sscanf(szLine + 4, "%lu", &ulPID);
+                    }
+                }
+                fclose(fp);
+                
+                // 覆盖 szRemote 和 szDevice
+                if(szIP[0] && ulPID) {
+                    snprintf(pLcCreateConfig->szRemote, sizeof(pLcCreateConfig->szRemote),
+                             "grpc://%s:%d", szIP, iPort);
+                    snprintf(pLcCreateConfig->szDevice, sizeof(pLcCreateConfig->szDevice),
+                             "qemu://hugepage-pid=%lu", ulPID);
+                }
+            }
+        }
+    }
     // check if open existing (primary) device:
     if(!pLcCreateConfig->szRemote[0] && (0 == _strnicmp("existing", pLcCreateConfig->szDevice, 8))) {
         if(0 == _strnicmp("existing://", pLcCreateConfig->szDevice, 11)) {
