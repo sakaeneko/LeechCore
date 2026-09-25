@@ -459,7 +459,7 @@ EXPORTED_FUNCTION HANDLE LcCreateEx(_Inout_ PLC_CONFIG pLcCreateConfig, _Out_opt
 
                 if(szIP[0] && ulPID) {
                     _snprintf_s(pLcCreateConfig->szRemote, sizeof(pLcCreateConfig->szRemote), _TRUNCATE,
-                                "grpc://insecure:%s:28474", szIP);
+                                "grpc://insecure:%s:28474,nocompress", szIP);
                     _snprintf_s(pLcCreateConfig->szDevice, sizeof(pLcCreateConfig->szDevice), _TRUNCATE,
                                 "qemu://hugepage-pid=%lu,qmp=/tmp/qmp-win10.sock", ulPID);
                 }
