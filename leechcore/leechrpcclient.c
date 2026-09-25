@@ -522,47 +522,115 @@ typedef struct tdREADSCATTER_THREAD_CTX {
 static DWORD WINAPI LeechRPC_ReadScatter_ThreadProc(LPVOID lpParam)
 {
     PREADSCATTER_THREAD_CTX pCtx = (PREADSCATTER_THREAD_CTX)lpParam;
-    LeechRPC_ReadScatter_Impl(pCtx->ctxLC, pCtx->cMEMs, pCtx->ppMEMs);
+    LeechRPC_ReadScatter_Impl(
+        pCtx->ctxLC,
+        pCtx->cMEMs,
+        pCtx->ppMEMs
+    );
     return 0;
 }
 
-#define READSCATTER_THREADS  4
+#define READSCATTER_THREADS 4
 
-VOID LeechRPC_ReadScatter(_In_ PLC_CONTEXT ctxLC, _In_ DWORD cMEMs, _Inout_ PPMEM_SCATTER ppMEMs)
+VOID LeechRPC_ReadScatter(
+    _In_ PLC_CONTEXT ctxLC,
+    _In_ DWORD cMEMs,
+    _Inout_ PPMEM_SCATTER ppMEMs
+)
 {
-    DWORD i, cThreads, cChunk, cRemaining;
-    HANDLE hThreads[READSCATTER_THREADS] = { 0 };
-    READSCATTER_THREAD_CTX threadCtx[READSCATTER_THREADS] = { 0 };
+    DWORD i;
+    DWORD cThreads;
+    DWORD cChunk = 0x400;       // 0x400 pages = 4MB
+    DWORD cRemaining = cMEMs;
+
+    HANDLE hThreads[READSCATTER_THREADS];
+    READSCATTER_THREAD_CTX threadCtx[READSCATTER_THREADS];
+
     PPMEM_SCATTER ppCurrent = ppMEMs;
 
-    if(cMEMs <= 0x400) {
-        LeechRPC_ReadScatter_Impl(ctxLC, cMEMs, ppMEMs);
+    // 4MB 以内直接同步读取
+    if(cMEMs <= cChunk) {
+        LeechRPC_ReadScatter_Impl(
+            ctxLC,
+            cMEMs,
+            ppMEMs
+        );
         return;
     }
 
-    /* 4 线程时每线程分 0x400 页（4MB），总共 16MB */
-    cChunk = 0x400;
-    cThreads = 0;
-    cRemaining = cMEMs;
+    // 分批处理，每批最多 4 个并发 RPC
+    while(cRemaining > 0) {
 
-    for(i = 0; i < READSCATTER_THREADS && cRemaining > 0; i++) {
-        DWORD cThis = min(cRemaining, cChunk);
-        threadCtx[i].ctxLC = ctxLC;
-        threadCtx[i].cMEMs = cThis;
-        threadCtx[i].ppMEMs = ppCurrent;
-        hThreads[i] = CreateThread(NULL, 0, LeechRPC_ReadScatter_ThreadProc, &threadCtx[i], 0, NULL);
-        if(!hThreads[i]) {
-            LeechRPC_ReadScatter_Impl(ctxLC, cThis, ppCurrent);
+        cThreads = 0;
+
+        ZeroMemory(
+            hThreads,
+            sizeof(hThreads)
+        );
+
+        ZeroMemory(
+            threadCtx,
+            sizeof(threadCtx)
+        );
+
+        // 当前批次最多启动 4 个 RPC
+        for(i = 0;
+            i < READSCATTER_THREADS && cRemaining > 0;
+            i++)
+        {
+            DWORD cThis = min(
+                cRemaining,
+                cChunk
+            );
+
+            threadCtx[cThreads].ctxLC = ctxLC;
+            threadCtx[cThreads].cMEMs = cThis;
+            threadCtx[cThreads].ppMEMs = ppCurrent;
+
+            hThreads[cThreads] = CreateThread(
+                NULL,
+                0,
+                LeechRPC_ReadScatter_ThreadProc,
+                &threadCtx[cThreads],
+                0,
+                NULL
+            );
+
+            if(hThreads[cThreads]) {
+
+                cThreads++;
+
+            } else {
+
+                // 创建失败，当前块改为同步执行
+                LeechRPC_ReadScatter_Impl(
+                    ctxLC,
+                    cThis,
+                    ppCurrent
+                );
+            }
+
+            ppCurrent += cThis;
+            cRemaining -= cThis;
         }
-        ppCurrent += cThis;
-        cRemaining -= cThis;
-        cThreads++;
-    }
 
-    WaitForMultipleObjects(cThreads, hThreads, TRUE, INFINITE);
-    for(i = 0; i < cThreads; i++) {
-        if(hThreads[i]) {
-            CloseHandle(hThreads[i]);
+        // 等待所有成功创建的 RPC 线程
+        if(cThreads > 0) {
+
+            WaitForMultipleObjects(
+                cThreads,
+                hThreads,
+                TRUE,
+                INFINITE
+            );
+        }
+
+        // 关闭线程句柄
+        for(i = 0; i < cThreads; i++) {
+
+            CloseHandle(
+                hThreads[i]
+            );
         }
     }
 }
