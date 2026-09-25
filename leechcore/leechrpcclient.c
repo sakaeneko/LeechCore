@@ -513,14 +513,57 @@ fail:
     LocalFree(pMsgRsp);
 }
 
+typedef struct tdREADSCATTER_THREAD_CTX {
+    PLC_CONTEXT ctxLC;
+    DWORD cMEMs;
+    PPMEM_SCATTER ppMEMs;
+} READSCATTER_THREAD_CTX, *PREADSCATTER_THREAD_CTX;
+
+static DWORD WINAPI LeechRPC_ReadScatter_ThreadProc(LPVOID lpParam)
+{
+    PREADSCATTER_THREAD_CTX pCtx = (PREADSCATTER_THREAD_CTX)lpParam;
+    LeechRPC_ReadScatter_Impl(pCtx->ctxLC, pCtx->cMEMs, pCtx->ppMEMs);
+    return 0;
+}
+
+#define READSCATTER_THREADS  4
+
 VOID LeechRPC_ReadScatter(_In_ PLC_CONTEXT ctxLC, _In_ DWORD cMEMs, _Inout_ PPMEM_SCATTER ppMEMs)
 {
-    DWORD cMEMsChunk;
-    while(cMEMs) {     // read max 16MB at a time.
-        cMEMsChunk = min(cMEMs, 0x1000);
-        LeechRPC_ReadScatter_Impl(ctxLC, cMEMsChunk, ppMEMs);
-        ppMEMs += cMEMsChunk;
-        cMEMs -= cMEMsChunk;
+    DWORD i, cThreads, cChunk, cRemaining;
+    HANDLE hThreads[READSCATTER_THREADS] = { 0 };
+    READSCATTER_THREAD_CTX threadCtx[READSCATTER_THREADS] = { 0 };
+    PPMEM_SCATTER ppCurrent = ppMEMs;
+
+    if(cMEMs <= 0x400) {
+        LeechRPC_ReadScatter_Impl(ctxLC, cMEMs, ppMEMs);
+        return;
+    }
+
+    /* 4 线程时每线程分 0x400 页（4MB），总共 16MB */
+    cChunk = 0x400;
+    cThreads = 0;
+    cRemaining = cMEMs;
+
+    for(i = 0; i < READSCATTER_THREADS && cRemaining > 0; i++) {
+        DWORD cThis = min(cRemaining, cChunk);
+        threadCtx[i].ctxLC = ctxLC;
+        threadCtx[i].cMEMs = cThis;
+        threadCtx[i].ppMEMs = ppCurrent;
+        hThreads[i] = CreateThread(NULL, 0, LeechRPC_ReadScatter_ThreadProc, &threadCtx[i], 0, NULL);
+        if(!hThreads[i]) {
+            LeechRPC_ReadScatter_Impl(ctxLC, cThis, ppCurrent);
+        }
+        ppCurrent += cThis;
+        cRemaining -= cThis;
+        cThreads++;
+    }
+
+    WaitForMultipleObjects(cThreads, hThreads, TRUE, INFINITE);
+    for(i = 0; i < cThreads; i++) {
+        if(hThreads[i]) {
+            CloseHandle(hThreads[i]);
+        }
     }
 }
 
